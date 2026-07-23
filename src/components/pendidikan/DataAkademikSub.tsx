@@ -190,12 +190,54 @@ export default function DataAkademikSub({
         const lem = lembagasList.find(l => String(l.id) === lemId);
         return {
           className: found.nama,
-          institutionCode: lem ? lem.kode : 'Formal',
+          institutionCode: lem ? (lem.kode || lem.nama) : 'Formal',
           lembagaId: lemId
         };
       }
       return null;
     }).filter(Boolean) as { className: string; institutionCode: string; lembagaId: string }[];
+
+    // Include formal institution from s.pendidikanFormal if not already present
+    if (s.pendidikanFormal) {
+      const lem = lembagasList.find(l => 
+        String(l.id) === String(s.pendidikanFormal) || 
+        (l.nama && l.nama.toLowerCase() === String(s.pendidikanFormal).toLowerCase()) ||
+        (l.kode && l.kode.toLowerCase() === String(s.pendidikanFormal).toLowerCase())
+      );
+      if (lem) {
+        const alreadyIn = activeClasses.some(c => c.lembagaId === String(lem.id));
+        if (!alreadyIn) {
+          const displayClass = (s.kelas && s.kelas !== 'Tanpa Kelas' && s.kelas !== 'Tidak Mengikuti') ? s.kelas : 'Calon Peserta Didik';
+          activeClasses.push({
+            className: displayClass,
+            institutionCode: lem.kode || lem.nama,
+            lembagaId: String(lem.id)
+          });
+        }
+      }
+    }
+
+    // Include internal institution from s.pendidikanInternal if not already present
+    if (s.pendidikanInternal) {
+      const internalIds = s.pendidikanInternal.split(',').map(x => x.trim()).filter(Boolean);
+      internalIds.forEach(idVal => {
+        const lem = lembagasList.find(l => 
+          String(l.id) === idVal || 
+          (l.nama && l.nama.toLowerCase() === idVal.toLowerCase()) ||
+          (l.kode && l.kode.toLowerCase() === idVal.toLowerCase())
+        );
+        if (lem) {
+          const alreadyIn = activeClasses.some(c => c.lembagaId === String(lem.id));
+          if (!alreadyIn) {
+            activeClasses.push({
+              className: 'Calon Peserta Didik',
+              institutionCode: lem.kode || lem.nama,
+              lembagaId: String(lem.id)
+            });
+          }
+        }
+      });
+    }
 
     return activeClasses;
   };
@@ -415,10 +457,14 @@ export default function DataAkademikSub({
         // Construct the list of new class names
         const finalClassNames: string[] = [];
         let updatedEmis = s.statusEmis;
+        let updatedFormal = s.pendidikanFormal;
+        let updatedInternalStr = s.pendidikanInternal || '';
+        let internalArr = updatedInternalStr.split(',').map(x => x.trim()).filter(Boolean);
 
         // For each active lembaga, decide which class to keep/add/remove
         activeLembagas.forEach(lem => {
           const action = selectedClassesByLembaga[lem.id];
+          const isFormalLem = getLembagaJenis(lem) === 'Formal';
           
           if (action === 'no_change') {
             // Keep existing assignment if there was one
@@ -427,13 +473,30 @@ export default function DataAkademikSub({
               finalClassNames.push(match.className);
             }
           } else if (action === 'remove') {
-            // Do not add anything (it's removed)
+            // Remove assignment
+            if (isFormalLem) {
+              if (String(updatedFormal).toLowerCase() === String(lem.id).toLowerCase() || (lem.nama && String(updatedFormal).toLowerCase() === lem.nama.toLowerCase())) {
+                updatedFormal = undefined;
+              }
+            } else {
+              internalArr = internalArr.filter(id => id.toLowerCase() !== String(lem.id).toLowerCase() && (lem.nama ? id.toLowerCase() !== lem.nama.toLowerCase() : true));
+            }
           } else if (action) {
-            // A specific class ID was selected
+            // A specific class ID or placement was selected
+            if (isFormalLem) {
+              updatedFormal = lem.id;
+            } else {
+              if (!internalArr.some(id => id.toLowerCase() === String(lem.id).toLowerCase() || (lem.nama && id.toLowerCase() === lem.nama.toLowerCase()))) {
+                internalArr.push(lem.id);
+              }
+            }
+
             const targetClass = kelasList.find(c => c.id === action);
             if (targetClass) {
               finalClassNames.push(targetClass.nama);
               updatedEmis = 'Terdaftar';
+            } else {
+              finalClassNames.push('Calon Peserta Didik');
             }
           }
         });
@@ -462,7 +525,9 @@ export default function DataAkademikSub({
         onUpdateSantri({
           ...s,
           kelas: finalClassString,
-          statusEmis: updatedEmis
+          statusEmis: updatedEmis,
+          pendidikanFormal: updatedFormal,
+          pendidikanInternal: internalArr.join(', ') || undefined
         });
       });
 

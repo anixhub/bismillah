@@ -428,9 +428,70 @@ export default function LembagaKelasSub({
     return isJenisMatch && isGenderMatchResult;
   });
 
+  // Helper: Determine if a student belongs to a given institution
+  const isStudentInLembaga = (s: Santri, l: Lembaga): boolean => {
+    if (!s || !l) return false;
+    
+    const norm = (str?: string | null) => (str || '').trim().toLowerCase().replace(/[-_]/g, ' ');
+
+    const targetId = norm(l.id);
+    const targetNama = norm(l.nama);
+    const targetKode = norm(l.kode);
+
+    // 1. Check s.pendidikanFormal
+    if (s.pendidikanFormal) {
+      const pf = norm(s.pendidikanFormal);
+      if (
+        pf === targetId ||
+        (targetNama && pf === targetNama) ||
+        (targetKode && pf === targetKode) ||
+        (targetNama && targetNama.length > 2 && (pf.includes(targetNama) || targetNama.includes(pf))) ||
+        (targetKode && targetKode.length > 2 && (pf.includes(targetKode) || targetKode.includes(pf)))
+      ) {
+        return true;
+      }
+    }
+
+    // 2. Check s.pendidikanInternal
+    if (s.pendidikanInternal) {
+      const internalParts = s.pendidikanInternal.split(',').map(x => norm(x)).filter(Boolean);
+      const matchInternal = internalParts.some(pi => 
+        pi === targetId ||
+        (targetNama && pi === targetNama) ||
+        (targetKode && pi === targetKode) ||
+        (targetNama && targetNama.length > 2 && (pi.includes(targetNama) || targetNama.includes(pi))) ||
+        (targetKode && targetKode.length > 2 && (pi.includes(targetKode) || targetKode.includes(pi)))
+      );
+      if (matchInternal) return true;
+    }
+
+    // 3. Check if s.kelas matches any class defined for this lembaga in kelasList
+    if (s.kelas) {
+      const sClasses = s.kelas.split(',').map(x => norm(x)).filter(Boolean);
+      const classesOfL = kelasList.filter(k => norm(getClsLembagaId(k)) === targetId);
+      const matchClass = classesOfL.some(k => k.nama && sClasses.includes(norm(k.nama)));
+      if (matchClass) return true;
+    }
+
+    return false;
+  };
+
   // Helper: Get classes for a specific institution
   const getClassesOfLembaga = (lembagaId: string) => {
-    return kelasList.filter(k => getClsLembagaId(k) === String(lembagaId));
+    const list = kelasList.filter(k => getClsLembagaId(k) === String(lembagaId));
+    const hasDefault = list.some(k => isDefaultClass(k));
+    if (!hasDefault) {
+      const defaultCls: Kelas = {
+        id: `calon-${lembagaId}`,
+        lembagaId: String(lembagaId),
+        nama: 'Calon Peserta Didik',
+        waliKelas: '-',
+        tingkatan: 'Lainnya',
+        isDefault: true
+      };
+      return [defaultCls, ...list];
+    }
+    return list;
   };
 
   // Helper: Get students belonging to a specific class in an institution
@@ -438,13 +499,12 @@ export default function LembagaKelasSub({
     return santriList.filter(s => {
       if (!isGenderMatch(s.gender, selectedGender)) return false;
 
+      const inLembaga = isStudentInLembaga(s, l);
+      if (!inLembaga) return false;
+
       const sClasses = s.kelas ? s.kelas.split(',').map(x => x.trim().toLowerCase()) : [];
       
       if (isDefaultClass(c)) {
-        const isFormal = String(s.pendidikanFormal || '') === String(l.id);
-        const isInternal = s.pendidikanInternal ? s.pendidikanInternal.split(',').map(x => String(x.trim())).includes(String(l.id)) : false;
-        if (!isFormal && !isInternal) return false;
-
         const otherClassesOfL = getClassesOfLembaga(l.id).filter(x => !isDefaultClass(x));
         const inOtherClass = otherClassesOfL.some(oc => oc.nama && sClasses.includes(oc.nama.trim().toLowerCase()));
         return !inOtherClass;
@@ -458,9 +518,7 @@ export default function LembagaKelasSub({
   const getLembagaStudentCount = (l: Lembaga) => {
     return santriList.filter(s => {
       if (!isGenderMatch(s.gender, selectedGender)) return false;
-      const isFormal = String(s.pendidikanFormal || '') === String(l.id);
-      const isInternal = s.pendidikanInternal ? s.pendidikanInternal.split(',').map(x => String(x.trim())).includes(String(l.id)) : false;
-      return isFormal || isInternal;
+      return isStudentInLembaga(s, l);
     }).length;
   };
 
