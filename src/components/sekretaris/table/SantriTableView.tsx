@@ -20,7 +20,7 @@ import {
   AlertTriangle,
   School
 } from 'lucide-react';
-import { Santri, Lembaga, Kelas } from '../../../types';
+import { Santri, Lembaga, Kelas, isGenderMatch } from '../../../types';
 import { renderSantriAvatar, getFormalKelasDisplay } from '../../SekretarisHelper';
 import { MembershipBadge } from '../components/HelperComponents';
 import { AgeFilterConfig, calculateAgeOnDate } from '../AgeFilterModal';
@@ -163,7 +163,10 @@ export default function SantriTableView({
     const handleCloseDropdowns = (e?: Event) => {
       if (e && e.target) {
         const target = e.target as HTMLElement;
-        if (target.closest && target.closest('.dropdown-container-box')) {
+        if (target.closest && (
+          target.closest('.dropdown-container-box') || 
+          target.closest('.dropdown-trigger-btn')
+        )) {
           return;
         }
       }
@@ -231,7 +234,7 @@ export default function SantriTableView({
       return 'Formal';
     };
 
-    const formalLembagaIds = lembagasList.filter(l => getLembagaJenis(l) === 'Formal').map(l => l.id);
+    const formalLembagaIds = lembagasList.filter(l => getLembagaJenis(l) === 'Formal').map(l => String(l.id));
 
     currentClasses = currentClasses.filter(clsName => {
       const lowerCls = clsName.trim().toLowerCase();
@@ -247,7 +250,7 @@ export default function SantriTableView({
         return false;
       }
       const foundCls = kelasList.find(k => k.nama.trim().toLowerCase() === lowerCls);
-      const foundLemId = foundCls ? (foundCls.lembagaId || (foundCls as any).lembaga_id) : null;
+      const foundLemId = foundCls ? String(foundCls.lembagaId || (foundCls as any).lembaga_id || '') : null;
       if (foundCls && foundLemId && formalLembagaIds.includes(foundLemId)) {
         return false;
       }
@@ -258,7 +261,9 @@ export default function SantriTableView({
     if (targetLembaga) {
       finalFormalLembagaId = targetLembaga.id;
     } else if (targetClass) {
-      finalFormalLembagaId = targetClass.lembagaId || (targetClass as any).lembaga_id || s.pendidikanFormal || undefined;
+      const foundInList = kelasList.find(k => k.id === targetClass.id || k.nama.trim().toLowerCase() === (targetClass.nama || '').trim().toLowerCase());
+      const clsLemId = targetClass.lembagaId || (targetClass as any).lembaga_id || (foundInList ? (foundInList.lembagaId || (foundInList as any).lembaga_id) : null);
+      finalFormalLembagaId = clsLemId ? String(clsLemId) : (s.pendidikanFormal || undefined);
     }
 
     if (targetClass && targetClass.nama) {
@@ -456,14 +461,21 @@ export default function SantriTableView({
 
     return (
       <div
-        onDoubleClick={(e) => handleCellDoubleClick(e, s, field)}
-        title={canWrite ? "Double-click untuk edit cepat" : undefined}
+        onDoubleClick={(e) => {
+          if (isSelectionMode) return;
+          handleCellDoubleClick(e, s, field);
+        }}
+        title={canWrite && !isSelectionMode ? "Double-click untuk edit cepat" : undefined}
         className={`group/cell relative flex items-center justify-between rounded px-1.5 py-0.5 transition-colors ${
-          canWrite ? 'hover:bg-emerald-50/60 cursor-pointer' : ''
+          isSelectionMode
+            ? 'pointer-events-none opacity-80'
+            : canWrite
+              ? 'hover:bg-emerald-50/60 cursor-pointer'
+              : ''
         } ${options?.className || ''}`}
       >
         <span className="truncate">{displayValue}</span>
-        {canWrite && (
+        {canWrite && !isSelectionMode && (
           <Pencil className="h-2.5 w-2.5 text-slate-400 opacity-0 group-hover/cell:opacity-100 transition-opacity shrink-0 ml-1" />
         )}
       </div>
@@ -666,11 +678,7 @@ export default function SantriTableView({
 
     const target = e.target as HTMLElement;
     if (
-      target.closest('button') || 
-      target.closest('select') || 
-      target.closest('a') ||
-      target.closest('thead') || // Ignore clicks starting on the table header
-      target.closest('.relative.inline-block') // Dropdown menu trigger
+      target.closest('thead') // Ignore clicks starting on the table header
     ) {
       return;
     }
@@ -821,17 +829,7 @@ export default function SantriTableView({
 
   const handleRowClick = (e: React.MouseEvent, index: number, s: Santri) => {
     if (!isSelectionMode) return;
-
-    const target = e.target as HTMLElement;
-    if (
-      target.closest('button') || 
-      target.closest('input') || 
-      target.closest('select') || 
-      target.closest('a') ||
-      target.closest('.relative.inline-block')
-    ) {
-      return;
-    }
+    toggleSingleSelection(s.id, e.shiftKey);
   };
 
   const getAgeHeaderSubtext = (config?: AgeFilterConfig) => {
@@ -1148,7 +1146,7 @@ export default function SantriTableView({
                     };
 
                     const formalLembagas = lembagasList.filter(l => 
-                      getLembagaJenis(l) === 'Formal' && (!l.gender || l.gender === s.gender || (l.gender as string) === 'Campuran' || (l.gender as string) === 'Semua')
+                      getLembagaJenis(l) === 'Formal' && isGenderMatch(l.gender, s.gender)
                     );
 
                     return (
@@ -1167,13 +1165,18 @@ export default function SantriTableView({
                               if (kStr) setKelasList(JSON.parse(kStr));
                             } catch {}
 
-                            setActiveFormalKelasDropdownId(activeFormalKelasDropdownId === s.id ? null : s.id);
+                            setActiveFormalKelasDropdownId(prev => prev === s.id ? null : s.id);
+                            setActiveEmisDropdownId(null);
+                            setActiveStatusKeanggotaanDropdownId(null);
+                            setActiveDomisiliDropdownId(null);
                           }}
                           disabled={!canWrite || isSelectionMode}
-                          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold border transition-all ${
-                            isTidakMengikuti
-                              ? 'bg-amber-50/90 text-amber-800 border-amber-200/80 italic hover:bg-amber-100'
-                              : 'bg-slate-100/90 text-slate-800 border-slate-200/90 hover:bg-slate-200/80'
+                          className={`dropdown-trigger-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold border transition-all ${
+                            isSelectionMode
+                              ? 'bg-slate-100/70 text-slate-400 border-slate-200/50 shadow-none pointer-events-none filter grayscale opacity-60'
+                              : isTidakMengikuti
+                                ? 'bg-amber-50/90 text-amber-800 border-amber-200/80 italic hover:bg-amber-100'
+                                : 'bg-slate-100/90 text-slate-800 border-slate-200/90 hover:bg-slate-200/80'
                           } ${canWrite && !isSelectionMode ? 'cursor-pointer shadow-2xs' : 'cursor-default'}`}
                           title={canWrite && !isSelectionMode ? "Klik untuk memilih / mengubah Kelas Formal" : undefined}
                         >
@@ -1188,198 +1191,267 @@ export default function SantriTableView({
                             (pendingFormal.cls !== null && formalClass.trim().toLowerCase() !== pendingFormal.cls.nama.trim().toLowerCase())
                           );
 
+                          // Determine active selected Lembaga in 2-column popover
+                          let currentSelectedLem: Lembaga | null = null;
+                          if (pendingFormal !== undefined) {
+                            currentSelectedLem = pendingFormal.lem;
+                          } else if (isTidakMengikuti) {
+                            currentSelectedLem = null;
+                          } else if (s.pendidikanFormal) {
+                            currentSelectedLem = formalLembagas.find(l => String(l.id) === String(s.pendidikanFormal)) || formalLembagas[0] || null;
+                          } else {
+                            currentSelectedLem = formalLembagas[0] || null;
+                          }
+
                           return (
                             <div 
                               onClick={(e) => e.stopPropagation()}
-                              className="dropdown-container-box absolute left-0 mt-1.5 z-[100] animate-in fade-in slide-in-from-top-1"
+                              className="dropdown-container-box absolute left-0 mt-1.5 z-[100] w-[370px] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden text-xs font-medium text-slate-700 animate-in fade-in slide-in-from-top-1"
                             >
-                              {/* Tombol centang & X tersusun vertikal di luar kanan atas dropdown (hanya jika ada perubahan) */}
-                              {hasChangedFormal && (
-                                <div className="absolute -top-2 -right-8 z-[110] flex flex-col items-center gap-1 bg-white border border-slate-200 rounded-lg p-1 shadow-lg animate-in fade-in zoom-in-95">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const pending = pendingFormalKelas[s.id];
-                                      if (pending) {
-                                        handleUpdateFormalClass(s, pending.lem, pending.cls);
-                                      }
-                                      setActiveFormalKelasDropdownId(null);
-                                      setPendingFormalKelas(prev => {
-                                        const copy = { ...prev };
-                                        delete copy[s.id];
-                                        return copy;
-                                      });
-                                    }}
-                                    className="rounded p-1 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 cursor-pointer transition-colors shadow-2xs"
-                                    title="Terapkan Perubahan (Centang)"
-                                  >
-                                    <Check className="h-3.5 w-3.5 stroke-[3]" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setActiveFormalKelasDropdownId(null);
-                                      setPendingFormalKelas(prev => {
-                                        const copy = { ...prev };
-                                        delete copy[s.id];
-                                        return copy;
-                                      });
-                                    }}
-                                    className="rounded p-1 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 cursor-pointer transition-colors shadow-2xs"
-                                    title="Batal Perubahan (X)"
-                                  >
-                                    <X className="h-3.5 w-3.5 stroke-[3]" />
-                                  </button>
+                              {/* Header & Save/Cancel Actions */}
+                              <div className="bg-slate-50 px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+                                  <School className="h-3.5 w-3.5 text-emerald-600" />
+                                  <span>Pilih Lembaga & Kelas Formal</span>
                                 </div>
-                              )}
-
-                              {/* Inner scrollable list box */}
-                              <div className="w-max min-w-[165px] max-w-[220px] max-h-80 overflow-y-auto overflow-x-hidden bg-white border border-slate-200 rounded-2xl shadow-xl py-1.5 text-xs font-medium text-slate-700">
-                                {/* Keterangan jika EMIS belum 'Terdaftar' - Minimalis & Tidak keluar kotak */}
-                                {!isEmisTerdaftar && (
-                                  <div className="mx-2 my-1 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200/80 text-amber-800 text-[10.5px] font-medium flex items-center gap-1.5 shrink-0">
-                                    <AlertTriangle className="h-3 w-3 text-amber-600 shrink-0" />
-                                    <span className="truncate">EMIS {s.statusEmis || 'Belum Terdaftar'}</span>
+                                {hasChangedFormal && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const pending = pendingFormalKelas[s.id];
+                                        if (pending) {
+                                          handleUpdateFormalClass(s, pending.lem, pending.cls);
+                                        }
+                                        setActiveFormalKelasDropdownId(null);
+                                        setPendingFormalKelas(prev => {
+                                          const copy = { ...prev };
+                                          delete copy[s.id];
+                                          return copy;
+                                        });
+                                      }}
+                                      className="rounded p-1 bg-emerald-500 text-white hover:bg-emerald-600 cursor-pointer transition-colors shadow-xs"
+                                      title="Terapkan Perubahan (Centang)"
+                                    >
+                                      <Check className="h-3.5 w-3.5 stroke-[3]" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveFormalKelasDropdownId(null);
+                                        setPendingFormalKelas(prev => {
+                                          const copy = { ...prev };
+                                          delete copy[s.id];
+                                          return copy;
+                                        });
+                                      }}
+                                      className="rounded p-1 bg-slate-200 text-slate-600 hover:bg-slate-300 cursor-pointer transition-colors shadow-xs"
+                                      title="Batal Perubahan (X)"
+                                    >
+                                      <X className="h-3.5 w-3.5 stroke-[3]" />
+                                    </button>
                                   </div>
                                 )}
+                              </div>
 
-                                {/* Option: Tidak Mengikuti */}
-                                <div className="px-1 py-0.5">
+                              {/* 2-Column Body */}
+                              <div className="flex h-[270px]">
+                                {/* Kolom 1: Memilih Lembaga */}
+                                <div className="w-[145px] border-r border-slate-100 bg-slate-50/70 p-1.5 overflow-y-auto space-y-1 shrink-0">
+                                  <div className="px-2 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    Kolom 1: Lembaga
+                                  </div>
+
+                                  {/* Option: Tidak Mengikuti */}
                                   <button
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setPendingFormalKelas(prev => ({ ...prev, [s.id]: { lem: null, cls: null } }));
                                     }}
-                                    className={`w-full text-left px-3 py-1.5 rounded-xl transition-colors flex items-center justify-between cursor-pointer ${
-                                      pendingFormalKelas[s.id] 
-                                        ? (pendingFormalKelas[s.id].cls === null ? 'bg-amber-100/60 text-amber-900 font-bold' : 'hover:bg-slate-50 text-slate-600')
-                                        : (isTidakMengikuti ? 'bg-amber-100/60 text-amber-900 font-bold' : 'hover:bg-slate-50 text-slate-600')
+                                    className={`w-full text-left px-2.5 py-2 rounded-xl transition-all flex items-center justify-between cursor-pointer text-xs ${
+                                      currentSelectedLem === null
+                                        ? 'bg-amber-500 text-white font-bold shadow-xs'
+                                        : 'text-slate-600 hover:bg-slate-200/60'
                                     }`}
                                   >
-                                    <div className="flex items-center gap-2">
-                                      <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
-                                      <span>Tidak Mengikuti</span>
+                                    <div className="flex items-center gap-1.5 truncate">
+                                      <span className={`h-2 w-2 rounded-full shrink-0 ${currentSelectedLem === null ? 'bg-white' : 'bg-amber-400'}`} />
+                                      <span className="truncate">Tidak Mengikuti</span>
                                     </div>
-                                    {(pendingFormalKelas[s.id] ? pendingFormalKelas[s.id].cls === null : isTidakMengikuti) && <Check className="h-3.5 w-3.5 text-amber-700 shrink-0" />}
                                   </button>
+
+                                  {/* Formal Lembagas */}
+                                  {formalLembagas.map((lem) => {
+                                    const isLemSelected = currentSelectedLem?.id === lem.id;
+                                    return (
+                                      <button
+                                        key={lem.id}
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const classesInLem = kelasList.filter(
+                                            k => String(k.lembagaId || (k as any).lembaga_id) === String(lem.id)
+                                          );
+                                          const calonCls = classesInLem.find(k => k.nama.toLowerCase().includes('calon')) || {
+                                            id: `calon-${lem.id}`,
+                                            nama: 'Calon Peserta Didik',
+                                            lembagaId: lem.id
+                                          };
+                                          setPendingFormalKelas(prev => ({
+                                            ...prev,
+                                            [s.id]: { lem, cls: calonCls as any }
+                                          }));
+                                        }}
+                                        className={`w-full text-left px-2.5 py-2 rounded-xl transition-all flex items-center justify-between cursor-pointer text-xs ${
+                                          isLemSelected
+                                            ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                                            : 'text-slate-700 hover:bg-slate-200/60'
+                                        }`}
+                                      >
+                                        <div className="flex flex-col min-w-0 pr-1">
+                                          <span className="truncate font-semibold">{lem.nama}</span>
+                                          {lem.kode && (
+                                            <span className={`text-[9px] font-mono ${isLemSelected ? 'text-emerald-100' : 'text-slate-400'}`}>
+                                              {lem.kode}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {isLemSelected && <ChevronRight className="h-3.5 w-3.5 text-white shrink-0" />}
+                                      </button>
+                                    );
+                                  })}
                                 </div>
 
-                            {/* Grouped by Formal Lembaga */}
-                            {formalLembagas.length === 0 ? (
-                              kelasList.length === 0 ? (
-                                <div className="px-3 py-3 text-center text-[11px] text-slate-400 italic">
-                                  Belum ada kelas formal terdaftar
-                                </div>
-                              ) : (
-                                <div className="border-t border-slate-100 pt-1 mt-1">
-                                  <div className="mx-1 px-2.5 py-1.5 font-bold text-[11px] text-white bg-emerald-600 rounded-lg uppercase tracking-wider flex items-center gap-1.5 shadow-2xs mb-1">
-                                    <School className="h-3.5 w-3.5 text-emerald-100 shrink-0" />
-                                    <span>Daftar Kelas</span>
-                                  </div>
-                                  <div className="p-1 space-y-0.5">
-                                    {kelasList.map((cls) => {
-                                      const isSelected = pendingFormalKelas[s.id]
-                                        ? pendingFormalKelas[s.id].cls?.id === cls.id
-                                        : formalClass.toLowerCase() === cls.nama.trim().toLowerCase();
-                                      return (
-                                        <button
-                                          key={cls.id}
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setPendingFormalKelas(prev => ({ ...prev, [s.id]: { lem: null, cls } }));
-                                          }}
-                                          className={`w-full text-left px-3 py-1.5 rounded-xl transition-colors flex items-center justify-between cursor-pointer ${
-                                            isSelected ? 'bg-emerald-50 text-emerald-800 font-bold' : 'hover:bg-slate-50 text-slate-700'
-                                          }`}
-                                        >
-                                          <span className="pl-1 truncate">{cls.nama}</span>
-                                          {isSelected && <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )
-                            ) : (
-                              formalLembagas.map((lem) => {
-                                const classesInLem = kelasList.filter(
-                                  k => k.lembagaId === lem.id || (k as any).lembaga_id === lem.id
-                                );
-                                const hasCalonOption = classesInLem.some(k => k.nama.toLowerCase().includes('calon'));
-
-                                return (
-                                  <div key={lem.id} className="border-t border-slate-100 pt-2 mt-1">
-                                    {/* Green background box header for each formal institution */}
-                                    <div className="mx-1 px-2.5 py-1.5 font-bold text-[11px] text-white bg-emerald-600 rounded-lg uppercase tracking-wider flex items-center justify-between shadow-2xs mb-1">
-                                      <div className="flex items-center gap-1.5 truncate">
-                                        <School className="h-3.5 w-3.5 text-emerald-100 shrink-0" />
-                                        <span className="truncate">{lem.nama}</span>
-                                      </div>
-                                      {lem.kode && (
-                                        <span className="text-[9px] bg-emerald-700/80 text-emerald-100 px-1.5 py-0.5 rounded font-mono shrink-0">
-                                          {lem.kode}
-                                        </span>
+                                {/* Kolom 2: Memilih Kelas */}
+                                <div className="flex-1 p-2 bg-white overflow-y-auto flex flex-col justify-between">
+                                  <div>
+                                    <div className="px-1 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between border-b border-slate-100 pb-1.5 mb-2">
+                                      <span>Kolom 2: Kelas</span>
+                                      {currentSelectedLem && (
+                                        <span className="text-emerald-700 font-extrabold">{currentSelectedLem.kode || currentSelectedLem.nama}</span>
                                       )}
                                     </div>
 
-                                    <div className="p-1 space-y-0.5">
-                                      {/* Option Calon Peserta if not explicitly listed in classes */}
-                                      {!hasCalonOption && (
-                                        (() => {
-                                          const calonClsObj = { id: `calon-${lem.id}`, nama: 'Calon Peserta Didik', lembagaId: lem.id };
-                                          const isSelected = pendingFormalKelas[s.id]
-                                            ? (pendingFormalKelas[s.id].lem?.id === lem.id && pendingFormalKelas[s.id].cls?.nama === 'Calon Peserta Didik')
-                                            : (s.pendidikanFormal === lem.id && (formalClass === 'Calon Peserta' || formalClass.toLowerCase().includes('calon')));
+                                    {currentSelectedLem === null ? (
+                                      <div className="p-3 text-center text-xs text-slate-500 italic bg-amber-50/50 border border-amber-100 rounded-xl mt-2">
+                                        Santri diatur <strong>Tidak Mengikuti</strong> pendidikan formal.
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-1.5">
+                                        {/* Keterangan singkat jika EMIS belum 'Terdaftar' */}
+                                        {!isEmisTerdaftar && (
+                                          <div className="p-2 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 text-[10.5px] leading-tight font-medium flex items-start gap-1.5 shadow-2xs">
+                                            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                                            <div>
+                                              <span className="font-bold block text-amber-950">Status EMIS: {s.statusEmis || 'Belum Terdaftar'}</span>
+                                              <span className="text-amber-800 text-[10px]">
+                                                Hanya bisa memilih kelas <strong>Calon Peserta Didik</strong>. Daftarkan EMIS untuk memilih kelas reguler.
+                                              </span>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Option: Calon Peserta Didik */}
+                                        {(() => {
+                                          const classesInLem = kelasList.filter(
+                                            k => String(k.lembagaId || (k as any).lembaga_id) === String(currentSelectedLem.id)
+                                          );
+                                          const calonObj = classesInLem.find(k => k.nama.toLowerCase().includes('calon')) || {
+                                            id: `calon-${currentSelectedLem.id}`,
+                                            nama: 'Calon Peserta Didik',
+                                            lembagaId: currentSelectedLem.id
+                                          };
+
+                                          const isCalonSelected = pendingFormal
+                                            ? pendingFormal.cls?.nama.toLowerCase().includes('calon')
+                                            : formalClass.toLowerCase().includes('calon');
 
                                           return (
                                             <button
                                               type="button"
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                setPendingFormalKelas(prev => ({ ...prev, [s.id]: { lem, cls: calonClsObj as any } }));
+                                                setPendingFormalKelas(prev => ({
+                                                  ...prev,
+                                                  [s.id]: { lem: currentSelectedLem, cls: calonObj as any }
+                                                }));
                                               }}
-                                              className={`w-full text-left px-3 py-1.5 rounded-xl transition-colors flex items-center justify-between cursor-pointer ${
-                                                isSelected ? 'bg-emerald-50 text-emerald-800 font-bold' : 'hover:bg-slate-50 text-slate-700'
+                                              className={`w-full text-left px-3 py-2 rounded-xl transition-all flex items-center justify-between cursor-pointer border text-xs ${
+                                                isCalonSelected
+                                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold shadow-2xs'
+                                                  : 'bg-slate-50/50 border-slate-100 text-slate-700 hover:bg-slate-100'
                                               }`}
                                             >
-                                              <span className="pl-1 truncate text-slate-500 italic">Calon Peserta</span>
-                                              {isSelected && <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />}
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                                                <span className="font-semibold">Calon Peserta Didik</span>
+                                              </div>
+                                              {isCalonSelected && <Check className="h-4 w-4 text-emerald-600 shrink-0 stroke-[2.5]" />}
                                             </button>
                                           );
-                                        })()
-                                      )}
+                                        })()}
 
-                                      {classesInLem.map((cls) => {
-                                        const isSelected = pendingFormalKelas[s.id]
-                                          ? pendingFormalKelas[s.id].cls?.id === cls.id
-                                          : (s.pendidikanFormal === lem.id && (formalClass.toLowerCase() === cls.nama.trim().toLowerCase() || (cls.nama.toLowerCase().includes('calon') && formalClass === 'Calon Peserta')));
+                                        {/* Regular Classes for this Lembaga */}
+                                        {(() => {
+                                          const classesInLem = kelasList.filter(
+                                            k => String(k.lembagaId || (k as any).lembaga_id) === String(currentSelectedLem.id) &&
+                                            !k.nama.toLowerCase().includes('calon')
+                                          );
 
-                                        return (
-                                          <button
-                                            key={cls.id}
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setPendingFormalKelas(prev => ({ ...prev, [s.id]: { lem, cls } }));
-                                            }}
-                                            className={`w-full text-left px-3 py-1.5 rounded-xl transition-colors flex items-center justify-between cursor-pointer ${
-                                              isSelected ? 'bg-emerald-50 text-emerald-800 font-bold' : 'hover:bg-slate-50 text-slate-700'
-                                            }`}
-                                          >
-                                            <span className="pl-1 truncate">{cls.nama}</span>
-                                            {isSelected && <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
+                                          if (classesInLem.length === 0) {
+                                            return (
+                                              <div className="px-2 py-2 text-center text-[11px] text-slate-400 italic">
+                                                Tidak ada kelas reguler lainnya.
+                                              </div>
+                                            );
+                                          }
+
+                                          return classesInLem.map((cls) => {
+                                            const isSelected = pendingFormal
+                                              ? pendingFormal.cls?.id === cls.id
+                                              : (
+                                                  s.pendidikanFormal === currentSelectedLem?.id &&
+                                                  formalClass.trim().toLowerCase() === cls.nama.trim().toLowerCase()
+                                                );
+
+                                            // If EMIS is NOT 'Terdaftar', disable all regular classes!
+                                            const isDisabled = !isEmisTerdaftar;
+
+                                            return (
+                                              <button
+                                                key={cls.id}
+                                                type="button"
+                                                disabled={isDisabled}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  if (isDisabled) return;
+                                                  setPendingFormalKelas(prev => ({
+                                                    ...prev,
+                                                    [s.id]: { lem: currentSelectedLem, cls }
+                                                  }));
+                                                }}
+                                                className={`w-full text-left px-3 py-1.5 rounded-xl transition-all flex items-center justify-between border text-xs ${
+                                                  isDisabled
+                                                    ? 'bg-slate-50 border-slate-100 text-slate-400/70 cursor-not-allowed opacity-60'
+                                                    : isSelected
+                                                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold shadow-2xs cursor-pointer'
+                                                      : 'bg-white border-slate-100 text-slate-700 hover:bg-slate-50 cursor-pointer'
+                                                }`}
+                                                title={isDisabled ? "Hanya dapat memilih Calon Peserta Didik karena EMIS belum terdaftar" : undefined}
+                                              >
+                                                <span className="truncate">{cls.nama}</span>
+                                                {isSelected && <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0 stroke-[2.5]" />}
+                                              </button>
+                                            );
+                                          });
+                                        })()}
+                                      </div>
+                                    )}
                                   </div>
-                                );
-                              })
-                            )}
+                                </div>
                               </div>
                             </div>
                           );
@@ -1567,13 +1639,18 @@ export default function SantriTableView({
                                 if (isSelectionMode) return;
                                 e.stopPropagation();
                                 if (!canWrite) return;
-                                setActiveDomisiliDropdownId(activeDomisiliDropdownId === s.id ? null : s.id);
+                                setActiveDomisiliDropdownId(prev => prev === s.id ? null : s.id);
+                                setActiveFormalKelasDropdownId(null);
+                                setActiveEmisDropdownId(null);
+                                setActiveStatusKeanggotaanDropdownId(null);
                               }}
                               disabled={!canWrite || isSelectionMode}
-                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border transition-all ${
-                                domisiliVal === 'Kampung' 
-                                  ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' 
-                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                              className={`dropdown-trigger-btn inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border transition-all ${
+                                isSelectionMode
+                                  ? 'bg-slate-100/70 text-slate-400 border-slate-200/50 shadow-none pointer-events-none filter grayscale opacity-60'
+                                  : domisiliVal === 'Kampung' 
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' 
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                               } ${canWrite && !isSelectionMode ? 'cursor-pointer shadow-2xs' : 'cursor-default'}`}
                               title={canWrite && !isSelectionMode ? "Klik untuk mengubah Status Domisili" : undefined}
                             >
@@ -1696,10 +1773,19 @@ export default function SantriTableView({
                             if (isSelectionMode) return;
                             e.stopPropagation();
                             if (!canWrite) return;
-                            setActiveStatusKeanggotaanDropdownId(activeStatusKeanggotaanDropdownId === s.id ? null : s.id);
+                            setActiveStatusKeanggotaanDropdownId(prev => prev === s.id ? null : s.id);
+                            setActiveFormalKelasDropdownId(null);
+                            setActiveDomisiliDropdownId(null);
+                            setActiveEmisDropdownId(null);
                           }}
                           disabled={!canWrite || isSelectionMode}
-                          className={`${canWrite && !isSelectionMode ? 'cursor-pointer hover:scale-105 transition-transform' : 'cursor-default'}`}
+                          className={`dropdown-trigger-btn ${
+                            isSelectionMode
+                              ? 'pointer-events-none filter grayscale opacity-60'
+                              : canWrite
+                                ? 'cursor-pointer hover:scale-105 transition-transform'
+                                : 'cursor-default'
+                          }`}
                           title={canWrite && !isSelectionMode ? "Klik untuk mengubah Status Keanggotaan" : undefined}
                         >
                           <MembershipBadge status={currentStatus} showChevron={canWrite && !isSelectionMode} />
@@ -1809,13 +1895,18 @@ export default function SantriTableView({
                             if (isSelectionMode) return;
                             e.stopPropagation();
                             if (!canWrite) return;
-                            setActiveEmisDropdownId(activeEmisDropdownId === s.id ? null : s.id);
+                            setActiveEmisDropdownId(prev => prev === s.id ? null : s.id);
+                            setActiveFormalKelasDropdownId(null);
+                            setActiveDomisiliDropdownId(null);
+                            setActiveStatusKeanggotaanDropdownId(null);
                           }}
                           disabled={!canWrite || isSelectionMode}
-                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold border transition-all ${
-                            isTerdaftar
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300'
-                              : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 hover:border-rose-300'
+                          className={`dropdown-trigger-btn inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold border transition-all ${
+                            isSelectionMode
+                              ? 'bg-slate-100/70 text-slate-400 border-slate-200/50 shadow-none pointer-events-none filter grayscale opacity-60'
+                              : isTerdaftar
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300'
+                                : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 hover:border-rose-300'
                           } ${canWrite && !isSelectionMode ? 'cursor-pointer shadow-2xs hover:shadow-xs' : 'cursor-default'}`}
                           title={canWrite && !isSelectionMode ? "Klik untuk mengubah Status EMIS" : undefined}
                         >

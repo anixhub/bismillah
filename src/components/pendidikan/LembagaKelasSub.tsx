@@ -7,7 +7,7 @@ import {
   Folder, FolderOpen, User, ArrowUpDown, Pencil, Settings, UserPlus, ArrowUp, ArrowDown,
   ChevronDown, ChevronsUpDown, Printer
 } from 'lucide-react';
-import { Lembaga, Kelas, Santri, KategoriRombel, KelompokRombel, RombelAssignment, isDefaultClass, isEmisTerdaftar } from '../../types';
+import { Lembaga, Kelas, Santri, KategoriRombel, KelompokRombel, RombelAssignment, isDefaultClass, isEmisTerdaftar, getClsLembagaId, isGenderMatch } from '../../types';
 import SantriDetailModal from '../sekretaris/SantriDetailModal';
 import { PUTRA_AVATAR, PUTRI_AVATAR, renderSantriAvatar, calculateRealtimeAge, getPesantrenProfile } from '../SekretarisHelper';
 
@@ -424,26 +424,25 @@ export default function LembagaKelasSub({
   // Filtered Lembaga
   const filteredLembagas = lembagasList.filter(l => {
     const isJenisMatch = getLembagaJenis(l) === activeTab;
-    const isGenderMatch = !l.gender || l.gender === selectedGender || (l.gender as string) === 'Campuran' || (l.gender as string) === 'Semua';
-    return isJenisMatch && isGenderMatch;
+    const isGenderMatchResult = isGenderMatch(l.gender, selectedGender);
+    return isJenisMatch && isGenderMatchResult;
   });
 
   // Helper: Get classes for a specific institution
-
   const getClassesOfLembaga = (lembagaId: string) => {
-    return kelasList.filter(k => k.lembagaId === lembagaId);
+    return kelasList.filter(k => getClsLembagaId(k) === String(lembagaId));
   };
 
   // Helper: Get students belonging to a specific class in an institution
   const getStudentsInClass = (c: Kelas, l: Lembaga) => {
     return santriList.filter(s => {
-      if (s.gender !== selectedGender) return false;
+      if (!isGenderMatch(s.gender, selectedGender)) return false;
 
       const sClasses = s.kelas ? s.kelas.split(',').map(x => x.trim().toLowerCase()) : [];
       
       if (isDefaultClass(c)) {
-        const isFormal = s.pendidikanFormal === l.id;
-        const isInternal = s.pendidikanInternal ? s.pendidikanInternal.split(',').map(x => x.trim()).includes(l.id) : false;
+        const isFormal = String(s.pendidikanFormal || '') === String(l.id);
+        const isInternal = s.pendidikanInternal ? s.pendidikanInternal.split(',').map(x => String(x.trim())).includes(String(l.id)) : false;
         if (!isFormal && !isInternal) return false;
 
         const otherClassesOfL = getClassesOfLembaga(l.id).filter(x => !isDefaultClass(x));
@@ -458,9 +457,9 @@ export default function LembagaKelasSub({
   // Helper: Get total students following an institution
   const getLembagaStudentCount = (l: Lembaga) => {
     return santriList.filter(s => {
-      if (s.gender !== selectedGender) return false;
-      const isFormal = s.pendidikanFormal === l.id;
-      const isInternal = s.pendidikanInternal ? s.pendidikanInternal.split(',').map(x => x.trim()).includes(l.id) : false;
+      if (!isGenderMatch(s.gender, selectedGender)) return false;
+      const isFormal = String(s.pendidikanFormal || '') === String(l.id);
+      const isInternal = s.pendidikanInternal ? s.pendidikanInternal.split(',').map(x => String(x.trim())).includes(String(l.id)) : false;
       return isFormal || isInternal;
     }).length;
   };

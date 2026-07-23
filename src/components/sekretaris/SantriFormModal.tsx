@@ -21,6 +21,8 @@ const TEMPAT_LAHIR_OPTIONS = [
 const UNIQUE_TEMPAT_LAHIR_OPTIONS = Array.from(new Set(TEMPAT_LAHIR_OPTIONS)).sort();
 const TEMPAT_LAHIR_OPTIONS_LIST = UNIQUE_TEMPAT_LAHIR_OPTIONS.map(name => ({ id: name, name }));
 
+const getLemId = (k: any) => k ? String(k.lembagaId || k.lembaga_id || '') : '';
+
 const PENDIDIKAN_ANAK_OPTIONS = [
   { id: "SD/MI", name: "SD/MI" },
   { id: "SMP/MTs", name: "SMP/MTs" },
@@ -986,19 +988,17 @@ export default function SantriFormModal({
     // Keep NIS empty if left blank (will be stored as NULL in database)
     const generatedNis = form.nis.trim() || '';
 
-    const getLemId = (k: any) => k ? (k.lembagaId || k.lembaga_id || '') : '';
-
     // Calculate synchronized classes based on selected pendidikanFormal and pendidikanInternal
     let finalClasses = form.kelas ? form.kelas.split(',').map(x => x.trim()).filter(Boolean) : [];
     finalClasses = finalClasses.filter(c => c.toLowerCase() !== 'tanpa kelas');
 
-    const formalLembagaId = form.pendidikanFormal;
+    const formalLembagaId = form.pendidikanFormal ? String(form.pendidikanFormal) : '';
     
     // Remove any classes that belong to OTHER formal institutions
     finalClasses = finalClasses.filter(clsName => {
       const cls = kelasList.find(k => k.nama.toLowerCase() === clsName.toLowerCase());
       if (cls) {
-        const lemOfCls = lembagasList.find(l => l.id === getLemId(cls));
+        const lemOfCls = lembagasList.find(l => String(l.id) === getLemId(cls));
         if (lemOfCls && getLembagaJenis(lemOfCls) === 'Formal') {
           return getLemId(cls) === formalLembagaId;
         }
@@ -1009,8 +1009,13 @@ export default function SantriFormModal({
     if (formalLembagaId) {
       // If student is not in any class of this formal institution, add default class
       const hasFormalClass = finalClasses.some(clsName => {
-        const cls = kelasList.find(k => k.nama.toLowerCase() === clsName.toLowerCase());
-        return cls && getLemId(cls) === formalLembagaId;
+        const lower = clsName.toLowerCase();
+        if (lower === 'calon peserta didik' || lower === 'calon pelajar') return true;
+        const cls = kelasList.find(k => k.nama.toLowerCase() === lower);
+        if (cls) {
+          return getLemId(cls) === formalLembagaId;
+        }
+        return true; // Keep custom/existing class names
       });
 
       if (!hasFormalClass) {
@@ -1024,14 +1029,14 @@ export default function SantriFormModal({
     }
 
     const internalLembagaIds = form.pendidikanInternal 
-      ? form.pendidikanInternal.split(',').map(x => x.trim()).filter(Boolean) 
+      ? form.pendidikanInternal.split(',').map(x => String(x.trim())).filter(Boolean) 
       : [];
 
     // Remove any classes that belong to internal institutions NOT selected anymore
     finalClasses = finalClasses.filter(clsName => {
       const cls = kelasList.find(k => k.nama.toLowerCase() === clsName.toLowerCase());
       if (cls) {
-        const lemOfCls = lembagasList.find(l => l.id === getLemId(cls));
+        const lemOfCls = lembagasList.find(l => String(l.id) === getLemId(cls));
         if (lemOfCls && getLembagaJenis(lemOfCls) === 'Internal') {
           return internalLembagaIds.includes(getLemId(cls));
         }
@@ -1042,8 +1047,13 @@ export default function SantriFormModal({
     // Make sure each selected internal institution has at least one class
     for (const internalId of internalLembagaIds) {
       const hasClassForThisInternal = finalClasses.some(clsName => {
-        const cls = kelasList.find(k => k.nama.toLowerCase() === clsName.toLowerCase());
-        return cls && getLemId(cls) === internalId;
+        const lower = clsName.toLowerCase();
+        if (lower === 'calon peserta didik' || lower === 'calon pelajar') return true;
+        const cls = kelasList.find(k => k.nama.toLowerCase() === lower);
+        if (cls) {
+          return getLemId(cls) === internalId;
+        }
+        return true;
       });
 
       if (!hasClassForThisInternal) {
@@ -1054,6 +1064,18 @@ export default function SantriFormModal({
           finalClasses.push('Calon Peserta Didik');
         }
       }
+    }
+
+    // If santri has a specific class (e.g. "7A"), strip out any leftover "Calon Peserta Didik"
+    const hasSpecificClass = finalClasses.some(c => {
+      const lower = c.trim().toLowerCase();
+      return lower !== 'calon peserta didik' && lower !== 'calon pelajar' && lower !== 'tanpa kelas';
+    });
+    if (hasSpecificClass) {
+      finalClasses = finalClasses.filter(c => {
+        const lower = c.trim().toLowerCase();
+        return lower !== 'calon peserta didik' && lower !== 'calon pelajar';
+      });
     }
 
     const uniqueClasses = Array.from(new Set(finalClasses));
@@ -1910,7 +1932,7 @@ export default function SantriFormModal({
 
                             {/* Dropdown Pilihan Kelas Formal jika Lembaga Formal dipilih */}
                             {form.pendidikanFormal && (() => {
-                              const formalClassesInLem = kelasList.filter(k => (k.lembagaId || (k as any).lembaga_id) === form.pendidikanFormal);
+                              const formalClassesInLem = kelasList.filter(k => getLemId(k) === String(form.pendidikanFormal));
                               const currentFormClasses = form.kelas ? form.kelas.split(',').map(x => x.trim()).filter(Boolean) : [];
                               const selectedVal = (() => {
                                 const matchedCls = formalClassesInLem.find(k => currentFormClasses.some(c => c.toLowerCase() === k.nama.toLowerCase()));
@@ -1931,7 +1953,7 @@ export default function SantriFormModal({
                                         const lowerC = c.toLowerCase();
                                         if (lowerC === 'calon peserta didik' || lowerC === 'calon pelajar') return false;
                                         const foundK = kelasList.find(k => k.nama.toLowerCase() === lowerC);
-                                        return !foundK || (foundK.lembagaId || (foundK as any).lembaga_id) !== form.pendidikanFormal;
+                                        return !foundK || getLemId(foundK) !== String(form.pendidikanFormal);
                                       });
                                       if (newSelectedClass) {
                                         updatedClasses.push(newSelectedClass);

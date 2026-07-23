@@ -116,22 +116,24 @@ export default function BulkEditModal({
     let currentClasses = santri.kelas ? santri.kelas.split(',').map(x => x.trim()).filter(Boolean) : [];
     currentClasses = currentClasses.filter(c => c.toLowerCase() !== 'tanpa kelas');
 
+    const getLemId = (k: any) => String(k ? (k.lembagaId || k.lembaga_id || '') : '').trim();
+
     // 1. Remove formal classes from formal institutions other than selectedFormalId
     const otherFormalLembagaIds = lembagas
-      .filter(l => getLembagaJenis(l) === 'Formal' && l.id !== selectedFormalId)
-      .map(l => l.id);
+      .filter(l => getLembagaJenis(l) === 'Formal' && String(l.id) !== String(selectedFormalId))
+      .map(l => String(l.id));
     const otherFormalClassNames = kelases
-      .filter(k => otherFormalLembagaIds.includes(k.lembagaId))
+      .filter(k => otherFormalLembagaIds.includes(getLemId(k)))
       .map(k => k.nama.trim().toLowerCase());
 
     currentClasses = currentClasses.filter(cls => !otherFormalClassNames.includes(cls.toLowerCase()));
 
     // 2. Remove internal classes from internal institutions that are NOT selected
     const unselectedInternalLembagaIds = lembagas
-      .filter(l => getLembagaJenis(l) === 'Internal' && !selectedInternalIds.includes(l.id))
-      .map(l => l.id);
+      .filter(l => getLembagaJenis(l) === 'Internal' && !selectedInternalIds.map(String).includes(String(l.id)))
+      .map(l => String(l.id));
     const unselectedInternalClassNames = kelases
-      .filter(k => unselectedInternalLembagaIds.includes(k.lembagaId))
+      .filter(k => unselectedInternalClassNames.includes(getLemId(k)))
       .map(k => k.nama.trim().toLowerCase());
 
     currentClasses = currentClasses.filter(cls => !unselectedInternalClassNames.includes(cls.toLowerCase()));
@@ -139,13 +141,16 @@ export default function BulkEditModal({
     // 3. If selectedFormalId is set, check if santri is already in a class for this formal institution
     if (selectedFormalId) {
       const formalClassNames = kelases
-        .filter(k => k.lembagaId === selectedFormalId)
+        .filter(k => getLemId(k) === String(selectedFormalId))
         .map(k => k.nama.trim().toLowerCase());
 
-      const alreadyHasFormalClass = currentClasses.some(cls => formalClassNames.includes(cls.toLowerCase()));
+      const alreadyHasFormalClass = currentClasses.some(cls => {
+        const lower = cls.trim().toLowerCase();
+        return formalClassNames.includes(lower) || lower === 'calon peserta didik' || lower === 'calon pelajar';
+      });
 
       if (!alreadyHasFormalClass) {
-        const defaultCls = kelases.find(k => k.lembagaId === selectedFormalId && isDefaultClass(k));
+        const defaultCls = kelases.find(k => getLemId(k) === String(selectedFormalId) && isDefaultClass(k));
         const newClsName = defaultCls ? defaultCls.nama : 'Calon Peserta Didik';
         currentClasses.push(newClsName);
       }
@@ -154,16 +159,30 @@ export default function BulkEditModal({
     // 4. For each selected internal institution ID, check if santri is already in a class for it
     for (const internalId of selectedInternalIds) {
       const internalClassNames = kelases
-        .filter(k => k.lembagaId === internalId)
+        .filter(k => getLemId(k) === String(internalId))
         .map(k => k.nama.trim().toLowerCase());
 
-      const alreadyHasInternalClass = currentClasses.some(cls => internalClassNames.includes(cls.toLowerCase()));
+      const alreadyHasInternalClass = currentClasses.some(cls => {
+        const lower = cls.trim().toLowerCase();
+        return internalClassNames.includes(lower) || lower === 'calon peserta didik' || lower === 'calon pelajar';
+      });
 
       if (!alreadyHasInternalClass) {
-        const defaultCls = kelases.find(k => k.lembagaId === internalId && isDefaultClass(k));
+        const defaultCls = kelases.find(k => getLemId(k) === String(internalId) && isDefaultClass(k));
         const newClsName = defaultCls ? defaultCls.nama : 'Calon Peserta Didik';
         currentClasses.push(newClsName);
       }
+    }
+
+    const hasSpecificClass = currentClasses.some(c => {
+      const lower = c.trim().toLowerCase();
+      return lower !== 'calon peserta didik' && lower !== 'calon pelajar' && lower !== 'tanpa kelas';
+    });
+    if (hasSpecificClass) {
+      currentClasses = currentClasses.filter(c => {
+        const lower = c.trim().toLowerCase();
+        return lower !== 'calon peserta didik' && lower !== 'calon pelajar';
+      });
     }
 
     // Deduplicate and join

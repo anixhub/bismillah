@@ -186,11 +186,12 @@ export default function DataAkademikSub({
     const activeClasses = sClasses.map(clsName => {
       const found = kelasList.find(c => c.nama.toLowerCase() === clsName.toLowerCase());
       if (found) {
-        const lem = lembagasList.find(l => l.id === found.lembagaId);
+        const lemId = String((found as any).lembagaId || (found as any).lembaga_id || '');
+        const lem = lembagasList.find(l => String(l.id) === lemId);
         return {
           className: found.nama,
           institutionCode: lem ? lem.kode : 'Formal',
-          lembagaId: found.lembagaId
+          lembagaId: lemId
         };
       }
       return null;

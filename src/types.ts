@@ -151,6 +151,26 @@ export const isDefaultClass = (c: { id?: string; nama?: string; isDefault?: bool
   return false;
 };
 
+export const getClsLembagaId = (c: any): string => {
+  if (!c) return '';
+  return String(c.lembagaId || c.lembaga_id || '').trim();
+};
+
+export const isGenderMatch = (lembagaGender?: string | null, santriGender?: string | null): boolean => {
+  if (!lembagaGender) return true;
+  const lG = lembagaGender.trim().toLowerCase();
+  if (lG === 'campuran' || lG === 'semua' || lG === 'semua gender' || lG === '') return true;
+  if (!santriGender) return true;
+  const sG = santriGender.trim().toLowerCase();
+  
+  const isMale = (g: string) => g === 'putra' || g === 'laki-laki' || g === 'l';
+  const isFemale = (g: string) => g === 'putri' || g === 'perempuan' || g === 'p';
+
+  if (isMale(lG) && isMale(sG)) return true;
+  if (isFemale(lG) && isFemale(sG)) return true;
+  return lG === sG;
+};
+
 export const isEmisTerdaftar = (status?: string | null): boolean => {
   return (status || '').trim().toLowerCase() === 'terdaftar';
 };
