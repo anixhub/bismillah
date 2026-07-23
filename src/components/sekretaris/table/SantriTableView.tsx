@@ -1145,9 +1145,29 @@ export default function SantriTableView({
                       return 'Formal';
                     };
 
-                    const formalLembagas = lembagasList.filter(l => 
-                      getLembagaJenis(l) === 'Formal' && isGenderMatch(l.gender, s.gender)
+                    const checkLembagaGenderMatch = (l: Lembaga, santriGender?: string | null): boolean => {
+                      if (!santriGender) return true;
+                      const sG = santriGender.trim();
+                      if (l.gender) {
+                        return isGenderMatch(l.gender, sG);
+                      }
+                      const nameLower = (l.nama || '').toLowerCase();
+                      if (sG === 'Putra' && nameLower.includes('putri') && !nameLower.includes('putra')) {
+                        return false;
+                      }
+                      if (sG === 'Putri' && nameLower.includes('putra') && !nameLower.includes('putri')) {
+                        return false;
+                      }
+                      return true;
+                    };
+
+                    const santriGender = s.gender === 'Putri' ? 'Putri' : 'Putra';
+                    let formalLembagas = lembagasList.filter(l => 
+                      getLembagaJenis(l) === 'Formal' && checkLembagaGenderMatch(l, santriGender)
                     );
+                    if (formalLembagas.length === 0) {
+                      formalLembagas = lembagasList.filter(l => getLembagaJenis(l) === 'Formal');
+                    }
 
                     return (
                       <div className="relative inline-block text-left">
@@ -1163,6 +1183,13 @@ export default function SantriTableView({
                               const kStr = localStorage.getItem('smartsantri_kelas');
                               if (lStr) setLembagasList(JSON.parse(lStr));
                               if (kStr) setKelasList(JSON.parse(kStr));
+
+                              fetchTableData<Lembaga>('lembaga', 'smartsantri_lembagas', [])
+                                .then(data => { if (data && data.length > 0) setLembagasList(data); })
+                                .catch(() => {});
+                              fetchTableData<Kelas>('kelas', 'smartsantri_kelas', [])
+                                .then(data => { if (data && data.length > 0) setKelasList(data); })
+                                .catch(() => {});
                             } catch {}
 
                             setActiveFormalKelasDropdownId(prev => prev === s.id ? null : s.id);
@@ -1186,33 +1213,62 @@ export default function SantriTableView({
 
                         {activeFormalKelasDropdownId === s.id && (() => {
                           const pendingFormal = pendingFormalKelas[s.id];
-                          const hasChangedFormal = pendingFormal !== undefined && (
-                            (pendingFormal.cls === null && !isTidakMengikuti) ||
-                            (pendingFormal.cls !== null && formalClass.trim().toLowerCase() !== pendingFormal.cls.nama.trim().toLowerCase())
-                          );
-
-                          // Determine active selected Lembaga in 2-column popover
+                          
+                          // Determine current selected Lembaga and Kelas
                           let currentSelectedLem: Lembaga | null = null;
+                          let currentSelectedCls: Kelas | null = null;
+
                           if (pendingFormal !== undefined) {
                             currentSelectedLem = pendingFormal.lem;
+                            currentSelectedCls = pendingFormal.cls;
                           } else if (isTidakMengikuti) {
                             currentSelectedLem = null;
+                            currentSelectedCls = null;
                           } else if (s.pendidikanFormal) {
                             currentSelectedLem = formalLembagas.find(l => String(l.id) === String(s.pendidikanFormal)) || formalLembagas[0] || null;
+                            if (currentSelectedLem) {
+                              currentSelectedCls = kelasList.find(
+                                k => String(k.lembagaId || (k as any).lembaga_id) === String(currentSelectedLem?.id) &&
+                                formalClass.trim().toLowerCase() === k.nama.trim().toLowerCase()
+                              ) || null;
+                              if (!currentSelectedCls) {
+                                currentSelectedCls = {
+                                  id: `calon-${currentSelectedLem.id}`,
+                                  nama: 'Calon Peserta Didik',
+                                  lembagaId: currentSelectedLem.id
+                                } as any;
+                              }
+                            }
                           } else {
                             currentSelectedLem = formalLembagas[0] || null;
+                            if (currentSelectedLem) {
+                              currentSelectedCls = {
+                                id: `calon-${currentSelectedLem.id}`,
+                                nama: 'Calon Peserta Didik',
+                                lembagaId: currentSelectedLem.id
+                              } as any;
+                            }
                           }
+
+                          const hasChangedFormal = pendingFormal !== undefined && (
+                            (pendingFormal.cls === null && !isTidakMengikuti) ||
+                            (pendingFormal.cls !== null && (
+                              isTidakMengikuti ||
+                              String(pendingFormal.lem?.id || '') !== String(s.pendidikanFormal || '') ||
+                              formalClass.trim().toLowerCase() !== (pendingFormal.cls.nama || '').trim().toLowerCase()
+                            ))
+                          );
 
                           return (
                             <div 
                               onClick={(e) => e.stopPropagation()}
-                              className="dropdown-container-box absolute left-0 mt-1.5 z-[100] w-[370px] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden text-xs font-medium text-slate-700 animate-in fade-in slide-in-from-top-1"
+                              className="dropdown-container-box absolute left-0 mt-1.5 z-[100] w-[310px] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden text-xs font-medium text-slate-700 animate-in fade-in slide-in-from-top-1"
                             >
                               {/* Header & Save/Cancel Actions */}
-                              <div className="bg-slate-50 px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                              <div className="bg-slate-50 px-3 py-2.5 border-b border-slate-100 flex items-center justify-between">
                                 <div className="flex items-center gap-1.5 font-bold text-slate-800 text-[11px] uppercase tracking-wider">
                                   <School className="h-3.5 w-3.5 text-emerald-600" />
-                                  <span>Pilih Lembaga & Kelas Formal</span>
+                                  <span>Lembaga & Kelas Formal</span>
                                 </div>
                                 {hasChangedFormal && (
                                   <div className="flex items-center gap-1">
@@ -1256,202 +1312,148 @@ export default function SantriTableView({
                                 )}
                               </div>
 
-                              {/* 2-Column Body */}
-                              <div className="flex h-[270px]">
-                                {/* Kolom 1: Memilih Lembaga */}
-                                <div className="w-[145px] border-r border-slate-100 bg-slate-50/70 p-1.5 overflow-y-auto space-y-1 shrink-0">
-                                  <div className="px-2 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                    Kolom 1: Lembaga
+                              {/* 2 Stacked Rectangles Body (Atas & Bawah) */}
+                              <div className="p-3 space-y-3 bg-white">
+                                
+                                {/* Persegi Panjang Atas: Dropdown Lembaga */}
+                                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-2.5 space-y-1.5 shadow-2xs">
+                                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                                    <span>Lembaga Formal</span>
                                   </div>
-
-                                  {/* Option: Tidak Mengikuti */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setPendingFormalKelas(prev => ({ ...prev, [s.id]: { lem: null, cls: null } }));
-                                    }}
-                                    className={`w-full text-left px-2.5 py-2 rounded-xl transition-all flex items-center justify-between cursor-pointer text-xs ${
-                                      currentSelectedLem === null
-                                        ? 'bg-amber-500 text-white font-bold shadow-xs'
-                                        : 'text-slate-600 hover:bg-slate-200/60'
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-1.5 truncate">
-                                      <span className={`h-2 w-2 rounded-full shrink-0 ${currentSelectedLem === null ? 'bg-white' : 'bg-amber-400'}`} />
-                                      <span className="truncate">Tidak Mengikuti</span>
-                                    </div>
-                                  </button>
-
-                                  {/* Formal Lembagas */}
-                                  {formalLembagas.map((lem) => {
-                                    const isLemSelected = currentSelectedLem?.id === lem.id;
-                                    return (
-                                      <button
-                                        key={lem.id}
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
+                                  
+                                  <select
+                                    value={currentSelectedLem === null ? 'tidak_mengikuti' : String(currentSelectedLem.id)}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      if (val === 'tidak_mengikuti') {
+                                        setPendingFormalKelas(prev => ({
+                                          ...prev,
+                                          [s.id]: { lem: null, cls: null }
+                                        }));
+                                      } else {
+                                        const newLem = formalLembagas.find(l => String(l.id) === val) || lembagasList.find(l => String(l.id) === val) || null;
+                                        if (newLem) {
                                           const classesInLem = kelasList.filter(
-                                            k => String(k.lembagaId || (k as any).lembaga_id) === String(lem.id)
+                                            k => String(k.lembagaId || (k as any).lembaga_id) === String(newLem.id)
                                           );
                                           const calonCls = classesInLem.find(k => k.nama.toLowerCase().includes('calon')) || {
-                                            id: `calon-${lem.id}`,
+                                            id: `calon-${newLem.id}`,
                                             nama: 'Calon Peserta Didik',
-                                            lembagaId: lem.id
+                                            lembagaId: newLem.id
                                           };
                                           setPendingFormalKelas(prev => ({
                                             ...prev,
-                                            [s.id]: { lem, cls: calonCls as any }
+                                            [s.id]: { lem: newLem, cls: calonCls as any }
                                           }));
-                                        }}
-                                        className={`w-full text-left px-2.5 py-2 rounded-xl transition-all flex items-center justify-between cursor-pointer text-xs ${
-                                          isLemSelected
-                                            ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                                            : 'text-slate-700 hover:bg-slate-200/60'
-                                        }`}
-                                      >
-                                        <div className="flex flex-col min-w-0 pr-1">
-                                          <span className="truncate font-semibold">{lem.nama}</span>
-                                          {lem.kode && (
-                                            <span className={`text-[9px] font-mono ${isLemSelected ? 'text-emerald-100' : 'text-slate-400'}`}>
-                                              {lem.kode}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {isLemSelected && <ChevronRight className="h-3.5 w-3.5 text-white shrink-0" />}
-                                      </button>
-                                    );
-                                  })}
+                                        }
+                                      }
+                                    }}
+                                    className="w-full rounded-lg bg-white border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-800 shadow-2xs focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                                  >
+                                    <option value="tidak_mengikuti">🚫 Tidak Mengikuti</option>
+                                    {formalLembagas.map((lem) => (
+                                      <option key={lem.id} value={String(lem.id)}>
+                                        🏫 {lem.nama} {lem.kode ? `(${lem.kode})` : ''}
+                                      </option>
+                                    ))}
+                                    {currentSelectedLem && !formalLembagas.some(fl => String(fl.id) === String(currentSelectedLem?.id)) && (
+                                      <option value={String(currentSelectedLem.id)}>
+                                        🏫 {currentSelectedLem.nama} {currentSelectedLem.kode ? `(${currentSelectedLem.kode})` : ''}
+                                      </option>
+                                    )}
+                                  </select>
                                 </div>
 
-                                {/* Kolom 2: Memilih Kelas */}
-                                <div className="flex-1 p-2 bg-white overflow-y-auto flex flex-col justify-between">
-                                  <div>
-                                    <div className="px-1 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between border-b border-slate-100 pb-1.5 mb-2">
-                                      <span>Kolom 2: Kelas</span>
-                                      {currentSelectedLem && (
-                                        <span className="text-emerald-700 font-extrabold">{currentSelectedLem.kode || currentSelectedLem.nama}</span>
-                                      )}
+                                {/* Persegi Panjang Bawah: Dropdown Kelas */}
+                                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-2.5 space-y-1.5 shadow-2xs">
+                                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+                                    <div className="flex items-center gap-1">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                                      <span>Kelas Formal</span>
                                     </div>
-
-                                    {currentSelectedLem === null ? (
-                                      <div className="p-3 text-center text-xs text-slate-500 italic bg-amber-50/50 border border-amber-100 rounded-xl mt-2">
-                                        Santri diatur <strong>Tidak Mengikuti</strong> pendidikan formal.
-                                      </div>
-                                    ) : (
-                                      <div className="space-y-1.5">
-                                        {/* Keterangan singkat jika EMIS belum 'Terdaftar' */}
-                                        {!isEmisTerdaftar && (
-                                          <div className="p-2 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 text-[10.5px] leading-tight font-medium flex items-start gap-1.5 shadow-2xs">
-                                            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
-                                            <div>
-                                              <span className="font-bold block text-amber-950">Status EMIS: {s.statusEmis || 'Belum Terdaftar'}</span>
-                                              <span className="text-amber-800 text-[10px]">
-                                                Hanya bisa memilih kelas <strong>Calon Peserta Didik</strong>. Daftarkan EMIS untuk memilih kelas reguler.
-                                              </span>
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        {/* Option: Calon Peserta Didik */}
-                                        {(() => {
-                                          const classesInLem = kelasList.filter(
-                                            k => String(k.lembagaId || (k as any).lembaga_id) === String(currentSelectedLem.id)
-                                          );
-                                          const calonObj = classesInLem.find(k => k.nama.toLowerCase().includes('calon')) || {
-                                            id: `calon-${currentSelectedLem.id}`,
-                                            nama: 'Calon Peserta Didik',
-                                            lembagaId: currentSelectedLem.id
-                                          };
-
-                                          const isCalonSelected = pendingFormal
-                                            ? pendingFormal.cls?.nama.toLowerCase().includes('calon')
-                                            : formalClass.toLowerCase().includes('calon');
-
-                                          return (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setPendingFormalKelas(prev => ({
-                                                  ...prev,
-                                                  [s.id]: { lem: currentSelectedLem, cls: calonObj as any }
-                                                }));
-                                              }}
-                                              className={`w-full text-left px-3 py-2 rounded-xl transition-all flex items-center justify-between cursor-pointer border text-xs ${
-                                                isCalonSelected
-                                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold shadow-2xs'
-                                                  : 'bg-slate-50/50 border-slate-100 text-slate-700 hover:bg-slate-100'
-                                              }`}
-                                            >
-                                              <div className="flex items-center gap-1.5">
-                                                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                                                <span className="font-semibold">Calon Peserta Didik</span>
-                                              </div>
-                                              {isCalonSelected && <Check className="h-4 w-4 text-emerald-600 shrink-0 stroke-[2.5]" />}
-                                            </button>
-                                          );
-                                        })()}
-
-                                        {/* Regular Classes for this Lembaga */}
-                                        {(() => {
-                                          const classesInLem = kelasList.filter(
-                                            k => String(k.lembagaId || (k as any).lembaga_id) === String(currentSelectedLem.id) &&
-                                            !k.nama.toLowerCase().includes('calon')
-                                          );
-
-                                          if (classesInLem.length === 0) {
-                                            return (
-                                              <div className="px-2 py-2 text-center text-[11px] text-slate-400 italic">
-                                                Tidak ada kelas reguler lainnya.
-                                              </div>
-                                            );
-                                          }
-
-                                          return classesInLem.map((cls) => {
-                                            const isSelected = pendingFormal
-                                              ? pendingFormal.cls?.id === cls.id
-                                              : (
-                                                  s.pendidikanFormal === currentSelectedLem?.id &&
-                                                  formalClass.trim().toLowerCase() === cls.nama.trim().toLowerCase()
-                                                );
-
-                                            // If EMIS is NOT 'Terdaftar', disable all regular classes!
-                                            const isDisabled = !isEmisTerdaftar;
-
-                                            return (
-                                              <button
-                                                key={cls.id}
-                                                type="button"
-                                                disabled={isDisabled}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  if (isDisabled) return;
-                                                  setPendingFormalKelas(prev => ({
-                                                    ...prev,
-                                                    [s.id]: { lem: currentSelectedLem, cls }
-                                                  }));
-                                                }}
-                                                className={`w-full text-left px-3 py-1.5 rounded-xl transition-all flex items-center justify-between border text-xs ${
-                                                  isDisabled
-                                                    ? 'bg-slate-50 border-slate-100 text-slate-400/70 cursor-not-allowed opacity-60'
-                                                    : isSelected
-                                                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold shadow-2xs cursor-pointer'
-                                                      : 'bg-white border-slate-100 text-slate-700 hover:bg-slate-50 cursor-pointer'
-                                                }`}
-                                                title={isDisabled ? "Hanya dapat memilih Calon Peserta Didik karena EMIS belum terdaftar" : undefined}
-                                              >
-                                                <span className="truncate">{cls.nama}</span>
-                                                {isSelected && <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0 stroke-[2.5]" />}
-                                              </button>
-                                            );
-                                          });
-                                        })()}
-                                      </div>
+                                    {currentSelectedLem && (
+                                      <span className="text-[10px] text-emerald-700 font-bold">{currentSelectedLem.kode || currentSelectedLem.nama}</span>
                                     )}
                                   </div>
+
+                                  {currentSelectedLem === null ? (
+                                    <select disabled className="w-full rounded-lg bg-slate-100 border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-400 cursor-not-allowed">
+                                      <option>Tidak Mengikuti Kelas</option>
+                                    </select>
+                                  ) : (() => {
+                                    const classesInLem = kelasList.filter(
+                                      k => String(k.lembagaId || (k as any).lembaga_id) === String(currentSelectedLem.id)
+                                    );
+                                    const calonObj = classesInLem.find(k => k.nama.toLowerCase().includes('calon')) || {
+                                      id: `calon-${currentSelectedLem.id}`,
+                                      nama: 'Calon Peserta Didik',
+                                      lembagaId: currentSelectedLem.id
+                                    };
+                                    const regularClasses = classesInLem.filter(k => !k.nama.toLowerCase().includes('calon'));
+
+                                    // Selected value key
+                                    let selectedValKey = `calon-${currentSelectedLem.id}`;
+                                    if (currentSelectedCls && !currentSelectedCls.nama.toLowerCase().includes('calon')) {
+                                      selectedValKey = String(currentSelectedCls.id);
+                                    }
+
+                                    return (
+                                      <select
+                                        value={selectedValKey}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          if (val.startsWith('calon')) {
+                                            setPendingFormalKelas(prev => ({
+                                              ...prev,
+                                              [s.id]: { lem: currentSelectedLem, cls: calonObj as any }
+                                            }));
+                                          } else {
+                                            if (!isEmisTerdaftar) return;
+                                            const selectedRegCls = regularClasses.find(k => String(k.id) === val);
+                                            if (selectedRegCls) {
+                                              setPendingFormalKelas(prev => ({
+                                                ...prev,
+                                                [s.id]: { lem: currentSelectedLem, cls: selectedRegCls }
+                                              }));
+                                            }
+                                          }
+                                        }}
+                                        className="w-full rounded-lg bg-white border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-800 shadow-2xs focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                                      >
+                                        <option value={`calon-${currentSelectedLem.id}`}>
+                                          ✨ Calon Peserta Didik (Default)
+                                        </option>
+                                        {regularClasses.map((cls) => {
+                                          const isDisabled = !isEmisTerdaftar;
+                                          return (
+                                            <option 
+                                              key={cls.id} 
+                                              value={String(cls.id)} 
+                                              disabled={isDisabled}
+                                            >
+                                              {isDisabled ? `🔒 ${cls.nama} (Butuh EMIS Terdaftar)` : `📚 ${cls.nama}`}
+                                            </option>
+                                          );
+                                        })}
+                                      </select>
+                                    );
+                                  })()}
                                 </div>
+
+                                {/* Informative EMIS Warning Box */}
+                                {currentSelectedLem !== null && !isEmisTerdaftar && (
+                                  <div className="p-2 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 text-[10.5px] leading-tight font-medium flex items-start gap-1.5 shadow-2xs">
+                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                                    <div>
+                                      <span className="font-bold block text-amber-950">Status EMIS: {s.statusEmis || 'Belum Terdaftar'}</span>
+                                      <span className="text-amber-800 text-[10px]">
+                                        Hanya bisa memilih kelas <strong>Calon Peserta Didik</strong>. Daftarkan EMIS untuk memilih kelas reguler.
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+
                               </div>
                             </div>
                           );
